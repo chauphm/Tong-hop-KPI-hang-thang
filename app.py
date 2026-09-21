@@ -32,7 +32,7 @@ else:
 
 if excel_source is not None:
     try:
-        xl = pd.ExcelFile(excel_source)
+        xl = pd.ExcelFile(excel_source, engine='openpyxl')
         sheet_names = xl.sheet_names
 
         required_sheets = ["Baocao", "BVDR B1", "KHCN"]
@@ -42,16 +42,16 @@ if excel_source is not None:
             st.error("⚠️ File Excel thiếu trang (sheet) 'Baocao'. Vui lòng kiểm tra lại file!")
         else:
             # 3. ĐỌC DỮ LIỆU NGUYÊN BẢN TỪ 3 SHEET CỐ ĐỊNH
-            df_baocao = pd.read_excel(excel_source, sheet_name="Baocao")
+            df_baocao = pd.read_excel(excel_source, sheet_name="Baocao", engine='openpyxl')
             df_baocao.columns = [str(col).strip() for col in df_baocao.columns]
             df_baocao = deduplicate_columns(df_baocao)
 
-            df_bvdr = pd.read_excel(excel_source, sheet_name="BVDR B1") if "BVDR B1" in sheet_names else pd.DataFrame()
+            df_bvdr = pd.read_excel(excel_source, sheet_name="BVDR B1", engine='openpyxl') if "BVDR B1" in sheet_names else pd.DataFrame()
             if not df_bvdr.empty:
                 df_bvdr.columns = [str(col).strip() for col in df_bvdr.columns]
                 df_bvdr = deduplicate_columns(df_bvdr)
 
-            df_khcn = pd.read_excel(excel_source, sheet_name="KHCN") if "KHCN" in sheet_names else pd.DataFrame()
+            df_khcn = pd.read_excel(excel_source, sheet_name="KHCN", engine='openpyxl') if "KHCN" in sheet_names else pd.DataFrame()
             if not df_khcn.empty:
                 df_khcn.columns = [str(col).strip() for col in df_khcn.columns]
                 df_khcn = deduplicate_columns(df_khcn)

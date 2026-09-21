@@ -104,7 +104,6 @@ if excel_source is not None:
             if loai_hoso_col:
                 df_baocao[loai_hoso_col + "_mapped"] = df_baocao[loai_hoso_col].map(mapping_dict).fillna(df_baocao[loai_hoso_col].astype(str))
 
-            # --- KHAI BÁO DANH SÁCH CỘT CẦN LẤY ---
             letters = ["H", "I", "K", "N", "O", "X", "AG", "AH", "AK", "AL", "AM", "AN"]
             target_excel_cols = []
             for l in letters:
@@ -115,7 +114,6 @@ if excel_source is not None:
             special_cols = [loai_hoso_col, totrinh_col, ngoaigiao_col]
             val_cols = list(dict.fromkeys([c for c in target_excel_cols + special_cols if c is not None]))
 
-            # --- LOẠI BỎ 5 CỘT THEO YÊU CẦU CỦA BẠN ---
             EXCLUDE_KEYWORDS = [
                 "số gyctt", "so gyctt", 
                 "số hồ sơ tờ trình bồi thường", "so ho so to trinh boi thuong",
@@ -130,7 +128,6 @@ if excel_source is not None:
 
             val_cols = [c for c in val_cols if not is_excluded(c)]
 
-            # --- TÍNH TOÁN DỮ LIỆU CÁC SHEET PHỤ ---
             khcn_metrics = {}
             if not df_khcn.empty and khcn_cb_col:
                 nghiepvu_col = next((c for c in df_khcn.columns if "nghiệp vụ" in c.lower() or "nghiep vu" in c.lower()), None)
@@ -139,7 +136,7 @@ if excel_source is not None:
                     list_pawci = ["CPA", "WCI", "TNCN.HSP", "TNCN.GVP", "PAI"]
                     list_dulich = ["DQT", "DLVN", "FLE", "YDL", "DTN", "NND"]
 
-                    for cb, group in df_khcn.groupby(khcn_cb_col):
+                    for cb, group in df_khcn.groupby(df_khcn[khcn_cb_col].astype(str).str.strip()):
                         cb_str = str(cb).strip()
                         nv_series = group[nghiepvu_col].astype(str).str.strip().str.upper()
                         khcn_metrics[cb_str] = {
@@ -156,7 +153,7 @@ if excel_source is not None:
                 tcbt_col = next((c for c in df_bvdr.columns if "tcbt" in c.lower()), None)
 
                 if hsmem_col and hsbs_col and tcbt_col:
-                    for cb, group in df_bvdr.groupby(bvdr_cb_col):
+                    for cb, group in df_bvdr.groupby(df_bvdr[bvdr_cb_col].astype(str).str.strip()):
                         cb_str = str(cb).strip()
                         cond1 = (group[hsmem_col].astype(str).str.strip().str.upper() == "HSMEM") & \
                                 (group[hsbs_col].astype(str).str.strip().str.upper() == "BS")
@@ -174,6 +171,8 @@ if excel_source is not None:
             valid_for_loai_hoso = ~(has_totrinh | has_ngoaigiao)
 
             pivot_data = []
+            # Ép kiểu cột tên cán bộ về dạng chuỗi trước khi groupby
+            df_baocao[row_col] = df_baocao[row_col].fillna("(Blank)").astype(str).str.strip()
             grouped = df_baocao.groupby(row_col, dropna=False)
             final_display_columns = []
 
@@ -182,7 +181,7 @@ if excel_source is not None:
             total_all_hoso_count = 0
 
             for name, group in grouped:
-                display_name = str(name).strip() if pd.notna(name) and str(name).strip() != "" else "(Blank)"
+                display_name = str(name).strip() if str(name).strip() != "" else "(Blank)"
                 row_dict = {row_col: display_name}
 
                 for c in val_cols:
@@ -289,8 +288,8 @@ if excel_source is not None:
                     col_name = display_df.columns[col_idx] if col_idx < len(display_df.columns) else None
 
                 if row_idx is not None and col_name is not None:
-                    selected_person = display_df.iloc[row_idx][row_col]
-                    selected_target_col = col_name
+                    selected_person = str(display_df.iloc[row_idx][row_col]).strip()
+                    selected_target_col = str(col_name).strip()
 
                     if selected_person == "--- TỔNG CỘNG ---":
                         st.info("ℹ️ Bạn đang chọn dòng **--- TỔNG CỘNG ---**. Vui lòng click chọn ô số liệu của từng Cán bộ cụ thể!")
@@ -303,10 +302,13 @@ if excel_source is not None:
                 detail_df = pd.DataFrame()
                 source_sheet_name = ""
 
+                # Ép kiểu dữ liệu chuỗi để lọc không bao giờ bị lỗi so sánh
+                target_person_str = str(selected_person).strip()
+
                 if selected_target_col in ["KHCN/ATSK", "PA/WCI", "Du lịch"]:
                     source_sheet_name = "KHCN"
                     if not df_khcn.empty and khcn_cb_col:
-                        person_mask = df_khcn[khcn_cb_col].astype(str).str.strip() == str(selected_person).strip()
+                        person_mask = df_khcn[khcn_cb_col].astype(str).str.strip() == target_person_str
                         nghiepvu_col = next((c for c in df_khcn.columns if "nghiệp vụ" in c.lower() or "nghiep vu" in c.lower()), None)
                         if nghiepvu_col:
                             nv_series = df_khcn[nghiepvu_col].astype(str).str.strip().str.upper()
@@ -321,7 +323,7 @@ if excel_source is not None:
                 elif selected_target_col == bvdr_col_name:
                     source_sheet_name = "BVDR B1"
                     if not df_bvdr.empty and bvdr_cb_col:
-                        person_mask = df_bvdr[bvdr_cb_col].astype(str).str.strip() == str(selected_person).strip()
+                        person_mask = df_bvdr[bvdr_cb_col].astype(str).str.strip() == target_person_str
                         hsmem_col = next((c for c in df_bvdr.columns if "hsmem" in c.lower()), None)
                         hsbs_col = next((c for c in df_bvdr.columns if "hsbs" in c.lower()), None)
                         tcbt_col = next((c for c in df_bvdr.columns if "tcbt" in c.lower()), None)
@@ -335,10 +337,10 @@ if excel_source is not None:
 
                 else:
                     source_sheet_name = "Baocao"
-                    if selected_person == "(Blank)":
-                        person_mask = df_baocao[row_col].isna() | (df_baocao[row_col].astype(str).str.strip() == "")
+                    if target_person_str == "(Blank)":
+                        person_mask = df_baocao[row_col].isna() | (df_baocao[row_col].astype(str).str.strip() == "") | (df_baocao[row_col].astype(str).str.strip() == "(Blank)")
                     else:
-                        person_mask = df_baocao[row_col].astype(str).str.strip() == str(selected_person).strip()
+                        person_mask = df_baocao[row_col].astype(str).str.strip() == target_person_str
 
                     if "[Ngoại trú]" in selected_target_col:
                         type_mask = (df_baocao[loai_hoso_col + "_mapped"] == "Ngoại trú") & valid_for_loai_hoso
@@ -363,18 +365,21 @@ if excel_source is not None:
                         col_mask = is_not_blank(df_baocao[selected_target_col])
                         detail_df = df_baocao[person_mask & col_mask]
 
-                # --- SỬA LỖI SẮP XẾP/HIỂN THỊ CHỨA DỮ LIỆU HỖN HỢP CHỮ VÀ SỐ ('<' not supported) ---
+                # Tối ưu hóa việc hiển thị bảng chi tiết để không va chạm kiểu dữ liệu
                 if not detail_df.empty:
-                    # Chuyển tất cả tên cột về kiểu chuỗi chuẩn
-                    detail_df.columns = [str(col) for col in detail_df.columns]
-                    # Loại bỏ các cột phụ do mã nguồn tạo ra khi hiển thị chi tiết
-                    clean_cols = [c for c in detail_df.columns if not str(c).endswith("_mapped")]
-                    detail_df = detail_df[clean_cols]
+                    clean_df = detail_df.copy()
+                    clean_df.columns = [str(col) for col in clean_df.columns]
+                    clean_cols = [c for c in clean_df.columns if not str(c).endswith("_mapped")]
+                    
+                    # Chuyển đổi toàn bộ dữ liệu hiển thị về dạng string/object an toàn
+                    clean_df = clean_df[clean_cols].astype(str)
 
-                st.success(
-                    f"📋 Kết quả (Trích xuất từ Sheet **{source_sheet_name}**): Tìm thấy **{len(detail_df):,}** hồ sơ cho **{row_col}** = `{selected_person}` tại chỉ tiêu **{selected_target_col}**:"
-                )
-                st.dataframe(detail_df, use_container_width=True)
+                    st.success(
+                        f"📋 Kết quả (Trích xuất từ Sheet **{source_sheet_name}**): Tìm thấy **{len(clean_df):,}** hồ sơ cho **{row_col}** = `{selected_person}` tại chỉ tiêu **{selected_target_col}**:"
+                    )
+                    st.dataframe(clean_df, use_container_width=True)
+                else:
+                    st.warning(f"⚠️ Không tìm thấy hồ sơ nào phù hợp cho `{selected_person}` tại chỉ tiêu `{selected_target_col}`.")
             else:
                 st.info("👆 Vui lòng click chọn 1 ô số liệu trên Bảng 1 ở trên để xem chi tiết hồ sơ.")
 

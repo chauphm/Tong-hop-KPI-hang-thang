@@ -2,11 +2,9 @@ import streamlit as st
 import pandas as pd
 import os
 
-# 1. Cấu hình giao diện trang Web
 st.set_page_config(page_title="Trang Web Báo Cáo Pivot 3 Sheet & Drill-down", layout="wide")
-st.title("📊 Trang tổng hợp dữ liệu KPI")
+st.title("📊 Trang phân tích dữ liệu KPI")
 
-# Hàm tự động xử lý trùng tên cột nếu file Excel có 2 cột giống hệt tên nhau
 def deduplicate_columns(df):
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
@@ -14,7 +12,17 @@ def deduplicate_columns(df):
     df.columns = cols
     return df
 
-# 2. Thanh bên trái & Xử lý nguồn Dữ liệu (Tự động đọc file 'data.xlsx' sẵn có hoặc Upload mới)
+def get_col_by_letter(df, letter):
+    # Quy đổi tên chữ cái cột Excel (A, B, H, I...) sang chỉ số vị trí 0-indexed
+    letter = letter.upper().strip()
+    idx = 0
+    for char in letter:
+        idx = idx * 26 + (ord(char) - ord('A') + 1)
+    col_idx = idx - 1
+    if col_idx < len(df.columns):
+        return df.columns[col_idx]
+    return None
+
 st.sidebar.header("📁 Dữ liệu nguồn")
 DEFAULT_EXCEL_PATH = "data.xlsx"
 
@@ -23,25 +31,21 @@ uploaded_file = st.sidebar.file_uploader("Tải lên file Excel mới (Tùy ch�
 excel_source = None
 if uploaded_file is not None:
     excel_source = uploaded_file
-    st.sidebar.success("Đã tải file Excel mới từ máy tính!")
+    st.sidebar.success("Đã tải file Excel mới!")
 elif os.path.exists(DEFAULT_EXCEL_PATH):
     excel_source = DEFAULT_EXCEL_PATH
-    st.sidebar.info("Đang sử dụng dữ liệu mặc định (`data.xlsx`).")
+    st.sidebar.info("Đang sử dụng `data.xlsx` mặc định.")
 else:
-    st.sidebar.warning("Chưa có file `data.xlsx` trong thư mục code. Vui lòng upload file!")
+    st.sidebar.warning("Chưa có file `data.xlsx`.")
 
 if excel_source is not None:
     try:
         xl = pd.ExcelFile(excel_source, engine='openpyxl')
         sheet_names = xl.sheet_names
 
-        required_sheets = ["Baocao", "BVDR B1", "KHCN"]
-        found_sheets = [s for s in required_sheets if s in sheet_names]
-
         if "Baocao" not in sheet_names:
-            st.error("⚠️ File Excel thiếu trang (sheet) 'Baocao'. Vui lòng kiểm tra lại file!")
+            st.error("⚠️ File Excel thiếu sheet 'Baocao'.")
         else:
-            # 3. ĐỌC DỮ LIỆU NGUYÊN BẢN TỪ 3 SHEET CỐ ĐỊNH
             df_baocao = pd.read_excel(excel_source, sheet_name="Baocao", engine='openpyxl')
             df_baocao.columns = [str(col).strip() for col in df_baocao.columns]
             df_baocao = deduplicate_columns(df_baocao)
@@ -56,7 +60,6 @@ if excel_source is not None:
                 df_khcn.columns = [str(col).strip() for col in df_khcn.columns]
                 df_khcn = deduplicate_columns(df_khcn)
 
-            # --- NHẬN DIỆN CỘT CÁN BỘ TRÊN SHEET BAOCAO ---
             row_col = "Cán bộ giải quyết bồi thường"
             for c in df_baocao.columns:
                 if "cán bộ giải quyết bồi thường" in c.lower() or "can bo giai quyet boi thuong" in c.lower():
@@ -66,7 +69,6 @@ if excel_source is not None:
             bvdr_cb_col = next((c for c in df_bvdr.columns if "cb đầu mối" in c.lower() or "cb dau moi" in c.lower()), None) if not df_bvdr.empty else None
             khcn_cb_col = next((c for c in df_khcn.columns if "cán bộ bt" in c.lower() or "can bo bt" in c.lower()), None) if not df_khcn.empty else None
 
-            # --- NHẬN DIỆN VÀ ĐỔI TÊN CỘT 'Mã HS' THÀNH 'C37/CI' ---
             cols_baocao = list(df_baocao.columns)
             loai_hoso_col = None
             totrinh_col = None
@@ -103,18 +105,19 @@ if excel_source is not None:
             if loai_hoso_col:
                 df_baocao[loai_hoso_col + "_mapped"] = df_baocao[loai_hoso_col].map(mapping_dict).fillna(df_baocao[loai_hoso_col].astype(str))
 
-            # --- CẤU HÌNH PIVOT TABLE ---
-            st.sidebar.header("⚙️ Cấu hình Pivot Table")
-            available_val_cols = [c for c in cols_baocao if c != row_col and not c.endswith("_mapped")]
-            default_vals = available_val_cols[:2] if len(available_val_cols) >= 2 else available_val_cols
+            # --- KHAI BÁO CHÍNH XÁC DANH SÁCH CỘT CẦN LẤY TỪ SHEET BAOCAO ---
+            letters = ["H", "I", "K", "N", "O", "X", "AG", "AH", "AK", "AL", "AM", "AN"]
+            target_excel_cols = []
+            for l in letters:
+                col_name = get_col_by_letter(df_baocao, l)
+                if col_name and col_name != row_col:
+                    target_excel_cols.append(col_name)
 
-            val_cols = st.sidebar.multiselect(
-                "Chọn các cột Giá trị cần đếm (từ Sheet Baocao):", 
-                available_val_cols, 
-                default=default_vals
-            )
+            # Đảm bảo các cột đặc biệt (Loại hồ sơ, Tờ trình BTTĐ, Ngoại giao) có mặt trong danh sách tính toán
+            special_cols = [loai_hoso_col, totrinh_col, ngoaigiao_col]
+            val_cols = list(dict.fromkeys([c for c in target_excel_cols + special_cols if c is not None]))
 
-            # --- DÒ TÌM & TÍNH TOÁN DỮ LIỆU TỪ 2 SHEET KHCN VÀ BVDR B1 ---
+            # --- TÍNH TOÁN DỮ LIỆU CÁC SHEET PHỤ ---
             khcn_metrics = {}
             if not df_khcn.empty and khcn_cb_col:
                 nghiepvu_col = next((c for c in df_khcn.columns if "nghiệp vụ" in c.lower() or "nghiep vu" in c.lower()), None)
@@ -150,7 +153,6 @@ if excel_source is not None:
                             bvdr_col_name: int((cond1 | cond2).sum())
                         }
 
-            # --- TẠO BẢNG PIVOT TỔNG HỢP ---
             def is_not_blank(series):
                 return series.notna() & (series.astype(str).str.strip() != "") & (series.astype(str).str.lower() != "nan")
 
@@ -244,11 +246,9 @@ if excel_source is not None:
 
             display_df = pd.concat([pivot_df, pd.DataFrame([total_row])], ignore_index=True)
 
-            # --- 1. HIỂN THỊ BẢNG PIVOT CÓ HỖ TRỢ CLICK CHUỘT VÀO Ô ---
             st.subheader("1. Bảng tổng hợp chỉ tiêu (Tất cả 3 Sheet)")
             st.caption("💡 *Mẹo: Click trực tiếp vào một ô số liệu bất kỳ trên bảng để xem chi tiết danh sách hồ sơ ở bên dưới.*")
 
-            # Kích hoạt sự kiện click chọn ô duy nhất
             selection = st.dataframe(
                 display_df,
                 use_container_width=True,
@@ -258,30 +258,33 @@ if excel_source is not None:
             )
 
             st.write("---")
-
-            # --- 2. XỬ LÝ SỰ KIỆN CLICK CHUỘT VÀ HIỂN THỊ DRILL-DOWN ---
             st.subheader("2. Xem chi tiết hồ sơ gốc (Drill-down)")
 
             selected_person = None
             selected_target_col = None
 
-            # Bắt tọa độ dòng/cột người dùng vừa click
             selected_cells = selection.get("selection", {}).get("cells", []) if selection else []
 
             if selected_cells:
                 cell = selected_cells[0]
-                row_idx = cell["row"]
-                col_name = cell["column"]
+                if isinstance(cell, dict):
+                    row_idx = cell.get("row")
+                    col_name = cell.get("column")
+                elif isinstance(cell, (list, tuple)):
+                    row_idx = cell[0]
+                    col_idx = cell[1]
+                    col_name = display_df.columns[col_idx] if col_idx < len(display_df.columns) else None
 
-                selected_person = display_df.iloc[row_idx][row_col]
-                selected_target_col = col_name
+                if row_idx is not None and col_name is not None:
+                    selected_person = display_df.iloc[row_idx][row_col]
+                    selected_target_col = col_name
 
-                if selected_person == "--- TỔNG CỘNG ---":
-                    st.info("ℹ️ Bạn đang chọn dòng **--- TỔNG CỘNG ---**. Vui lòng click chọn ô số liệu của từng Cán bộ cụ thể!")
-                    selected_person = None
-                elif selected_target_col == row_col:
-                    st.info(f"ℹ️ Bạn đang chọn cán bộ **{selected_person}**. Vui lòng click chọn ô số liệu ở các cột chỉ tiêu tương ứng!")
-                    selected_person = None
+                    if selected_person == "--- TỔNG CỘNG ---":
+                        st.info("ℹ️ Bạn đang chọn dòng **--- TỔNG CỘNG ---**. Vui lòng click chọn ô số liệu của từng Cán bộ cụ thể!")
+                        selected_person = None
+                    elif selected_target_col == row_col:
+                        st.info(f"ℹ️ Bạn đang chọn cán bộ **{selected_person}**. Vui lòng click chọn ô số liệu ở các cột chỉ tiêu tương ứng!")
+                        selected_person = None
 
             if selected_person and selected_target_col:
                 detail_df = pd.DataFrame()
@@ -347,11 +350,9 @@ if excel_source is not None:
                         col_mask = is_not_blank(df_baocao[selected_target_col])
                         detail_df = df_baocao[person_mask & col_mask]
 
-                # Dòng thông báo giữ nguyên chuẩn theo yêu cầu
                 st.success(
                     f"📋 Kết quả (Trích xuất từ Sheet **{source_sheet_name}**): Tìm thấy **{len(detail_df):,}** hồ sơ cho **{row_col}** = `{selected_person}` tại chỉ tiêu **{selected_target_col}**:"
                 )
-
                 st.dataframe(detail_df, use_container_width=True)
             else:
                 st.info("👆 Vui lòng click chọn 1 ô số liệu trên Bảng 1 ở trên để xem chi tiết hồ sơ.")

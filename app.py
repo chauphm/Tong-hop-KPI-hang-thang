@@ -171,7 +171,6 @@ if excel_source is not None:
             valid_for_loai_hoso = ~(has_totrinh | has_ngoaigiao)
 
             pivot_data = []
-            # Ép kiểu cột tên cán bộ về dạng chuỗi trước khi groupby
             df_baocao[row_col] = df_baocao[row_col].fillna("(Blank)").astype(str).str.strip()
             grouped = df_baocao.groupby(row_col, dropna=False)
             final_display_columns = []
@@ -275,19 +274,34 @@ if excel_source is not None:
             selected_person = None
             selected_target_col = None
 
-            selected_cells = selection.get("selection", {}).get("cells", []) if selection else []
+            # Lấy danh sách ô được chọn an toàn từ widget dataframe
+            selected_cells = []
+            if hasattr(selection, "selection") and hasattr(selection.selection, "cells"):
+                selected_cells = selection.selection.cells
+            elif isinstance(selection, dict):
+                selected_cells = selection.get("selection", {}).get("cells", []) or selection.get("cells", [])
 
             if selected_cells:
                 cell = selected_cells[0]
+                row_idx = None
+                col_val = None
+
                 if isinstance(cell, dict):
                     row_idx = cell.get("row")
-                    col_name = cell.get("column")
-                elif isinstance(cell, (list, tuple)):
+                    col_val = cell.get("column")
+                elif isinstance(cell, (list, tuple)) and len(cell) >= 2:
                     row_idx = cell[0]
-                    col_idx = cell[1]
-                    col_name = display_df.columns[col_idx] if col_idx < len(display_df.columns) else None
+                    col_val = cell[1]
 
-                if row_idx is not None and col_name is not None:
+                # Xử lý trường hợp col_val là tên cột (str) hoặc chỉ số cột (int)
+                col_name = None
+                if isinstance(col_val, str):
+                    col_name = col_val
+                elif isinstance(col_val, int) and 0 <= col_val < len(display_df.columns):
+                    col_name = display_df.columns[col_val]
+
+                # Kiểm tra chỉ số dòng row_idx hợp lệ
+                if row_idx is not None and isinstance(row_idx, int) and 0 <= row_idx < len(display_df) and col_name is not None:
                     selected_person = str(display_df.iloc[row_idx][row_col]).strip()
                     selected_target_col = str(col_name).strip()
 
@@ -301,8 +315,6 @@ if excel_source is not None:
             if selected_person and selected_target_col:
                 detail_df = pd.DataFrame()
                 source_sheet_name = ""
-
-                # Ép kiểu dữ liệu chuỗi để lọc không bao giờ bị lỗi so sánh
                 target_person_str = str(selected_person).strip()
 
                 if selected_target_col in ["KHCN/ATSK", "PA/WCI", "Du lịch"]:
@@ -365,13 +377,10 @@ if excel_source is not None:
                         col_mask = is_not_blank(df_baocao[selected_target_col])
                         detail_df = df_baocao[person_mask & col_mask]
 
-                # Tối ưu hóa việc hiển thị bảng chi tiết để không va chạm kiểu dữ liệu
                 if not detail_df.empty:
                     clean_df = detail_df.copy()
                     clean_df.columns = [str(col) for col in clean_df.columns]
                     clean_cols = [c for c in clean_df.columns if not str(c).endswith("_mapped")]
-                    
-                    # Chuyển đổi toàn bộ dữ liệu hiển thị về dạng string/object an toàn
                     clean_df = clean_df[clean_cols].astype(str)
 
                     st.success(

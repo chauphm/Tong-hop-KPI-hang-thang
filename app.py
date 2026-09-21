@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 
 # 1. Cấu hình giao diện trang Web
 st.set_page_config(page_title="Trang Web Báo Cáo Pivot 3 Sheet & Drill-down", layout="wide")
@@ -13,15 +14,27 @@ def deduplicate_columns(df):
     df.columns = cols
     return df
 
-# 2. Thanh bên trái: Tải file dữ liệu
-uploaded_file = st.sidebar.file_uploader("Tải lên file dữ liệu Excel (.xlsx)", type=["xlsx"])
+# 2. Thanh bên trái & Xử lý nguồn Dữ liệu (Tự động đọc file 'data.xlsx' sẵn có hoặc Upload mới)
+st.sidebar.header("📁 Dữ liệu nguồn")
+DEFAULT_EXCEL_PATH = "data.xlsx"
 
+uploaded_file = st.sidebar.file_uploader("Tải lên file Excel mới (Tùy chọn):", type=["xlsx"])
+
+excel_source = None
 if uploaded_file is not None:
+    excel_source = uploaded_file
+    st.sidebar.success("Đã tải file Excel mới từ máy tính!")
+elif os.path.exists(DEFAULT_EXCEL_PATH):
+    excel_source = DEFAULT_EXCEL_PATH
+    st.sidebar.info("Đang sử dụng dữ liệu mặc định (`data.xlsx`).")
+else:
+    st.sidebar.warning("Chưa có file `data.xlsx` trong thư mục code. Vui lòng upload file!")
+
+if excel_source is not None:
     try:
-        xl = pd.ExcelFile(uploaded_file)
+        xl = pd.ExcelFile(excel_source)
         sheet_names = xl.sheet_names
 
-        # Kiểm tra xem file có đủ 3 sheet cố định không
         required_sheets = ["Baocao", "BVDR B1", "KHCN"]
         found_sheets = [s for s in required_sheets if s in sheet_names]
 
@@ -29,30 +42,27 @@ if uploaded_file is not None:
             st.error("⚠️ File Excel thiếu trang (sheet) 'Baocao'. Vui lòng kiểm tra lại file!")
         else:
             # 3. ĐỌC DỮ LIỆU NGUYÊN BẢN TỪ 3 SHEET CỐ ĐỊNH
-            df_baocao = pd.read_excel(uploaded_file, sheet_name="Baocao")
+            df_baocao = pd.read_excel(excel_source, sheet_name="Baocao")
             df_baocao.columns = [str(col).strip() for col in df_baocao.columns]
             df_baocao = deduplicate_columns(df_baocao)
 
-            df_bvdr = pd.read_excel(uploaded_file, sheet_name="BVDR B1") if "BVDR B1" in sheet_names else pd.DataFrame()
+            df_bvdr = pd.read_excel(excel_source, sheet_name="BVDR B1") if "BVDR B1" in sheet_names else pd.DataFrame()
             if not df_bvdr.empty:
                 df_bvdr.columns = [str(col).strip() for col in df_bvdr.columns]
                 df_bvdr = deduplicate_columns(df_bvdr)
 
-            df_khcn = pd.read_excel(uploaded_file, sheet_name="KHCN") if "KHCN" in sheet_names else pd.DataFrame()
+            df_khcn = pd.read_excel(excel_source, sheet_name="KHCN") if "KHCN" in sheet_names else pd.DataFrame()
             if not df_khcn.empty:
                 df_khcn.columns = [str(col).strip() for col in df_khcn.columns]
                 df_khcn = deduplicate_columns(df_khcn)
 
-            st.sidebar.success(f"Đã tải thành công 3 Sheet: {', '.join(found_sheets)}")
-
-            # --- NHẬN DIỆN CỘT CÁN BỘ TRÊN SHEET BAOCAO (CỘT DÒNG DUY NHẤT) ---
+            # --- NHẬN DIỆN CỘT CÁN BỘ TRÊN SHEET BAOCAO ---
             row_col = "Cán bộ giải quyết bồi thường"
             for c in df_baocao.columns:
                 if "cán bộ giải quyết bồi thường" in c.lower() or "can bo giai quyet boi thuong" in c.lower():
                     row_col = c
                     break
 
-            # Tên cột cán bộ ở 2 Sheet phụ (Dùng để dò tìm, KHÔNG ĐỔI TÊN HAY THÊM VÀO PIVOT)
             bvdr_cb_col = next((c for c in df_bvdr.columns if "cb đầu mối" in c.lower() or "cb dau moi" in c.lower()), None) if not df_bvdr.empty else None
             khcn_cb_col = next((c for c in df_khcn.columns if "cán bộ bt" in c.lower() or "can bo bt" in c.lower()), None) if not df_khcn.empty else None
 
@@ -62,7 +72,7 @@ if uploaded_file is not None:
             totrinh_col = None
             ngoaigiao_col = None
             ma_hs_col = None
-            dung_han_col = None  # Cột phân loại Đúng/Trễ hạn
+            dung_han_col = None
 
             for c in cols_baocao:
                 c_lower = c.lower()
@@ -77,16 +87,13 @@ if uploaded_file is not None:
                 elif any(kw in c_lower for kw in ["đúng/trễ", "dung/tre", "đúng hạn", "dung han", "tiến độ", "tien do", "trễ hạn"]) and not dung_han_col:
                     dung_han_col = c
 
-            # Đổi tên cột 'Mã HS' sang 'C37/CI' trên DataFrame df_baocao
             c37_col_name = "C37/CI"
             if ma_hs_col:
                 df_baocao.rename(columns={ma_hs_col: c37_col_name}, inplace=True)
-                # Cập nhật lại danh sách cột
                 cols_baocao = list(df_baocao.columns)
                 if ma_hs_col == loai_hoso_col: loai_hoso_col = c37_col_name
                 ma_hs_col = c37_col_name
 
-            # Quy đổi mã 1, 2, 3 của Loại hồ sơ
             mapping_dict = {
                 1: "Ngoại trú", "1": "Ngoại trú", "1.0": "Ngoại trú",
                 2: "Nội trú", "2": "Nội trú", "2.0": "Nội trú",
@@ -98,8 +105,6 @@ if uploaded_file is not None:
 
             # --- CẤU HÌNH PIVOT TABLE ---
             st.sidebar.header("⚙️ Cấu hình Pivot Table")
-            
-            # Danh sách các cột giá trị có thể chọn ở Sheet Baocao (Loại trừ cột Dòng row_col)
             available_val_cols = [c for c in cols_baocao if c != row_col and not c.endswith("_mapped")]
             default_vals = available_val_cols[:2] if len(available_val_cols) >= 2 else available_val_cols
 
@@ -110,12 +115,9 @@ if uploaded_file is not None:
             )
 
             # --- DÒ TÌM & TÍNH TOÁN DỮ LIỆU TỪ 2 SHEET KHCN VÀ BVDR B1 ---
-            
-            # 1. Logic Sheet KHCN (Dò theo cột 'Cán bộ BT')
             khcn_metrics = {}
             if not df_khcn.empty and khcn_cb_col:
                 nghiepvu_col = next((c for c in df_khcn.columns if "nghiệp vụ" in c.lower() or "nghiep vu" in c.lower()), None)
-
                 if nghiepvu_col:
                     list_atsk = ["KHN", "ATS"]
                     list_pawci = ["CPA", "WCI", "TNCN.HSP", "TNCN.GVP", "PAI"]
@@ -124,14 +126,12 @@ if uploaded_file is not None:
                     for cb, group in df_khcn.groupby(khcn_cb_col):
                         cb_str = str(cb).strip()
                         nv_series = group[nghiepvu_col].astype(str).str.strip().str.upper()
-                        
                         khcn_metrics[cb_str] = {
                             "KHCN/ATSK": int(nv_series.isin(list_atsk).sum()),
                             "PA/WCI": int(nv_series.isin(list_pawci).sum()),
                             "Du lịch": int(nv_series.isin(list_dulich).sum())
                         }
 
-            # 2. Logic Sheet BVDR B1 (Dò theo cột 'CB đầu mối')
             bvdr_metrics = {}
             bvdr_col_name = "D99 cứng/bổ sung mềm B1 (nội+ngoại)"
             if not df_bvdr.empty and bvdr_cb_col:
@@ -142,13 +142,10 @@ if uploaded_file is not None:
                 if hsmem_col and hsbs_col and tcbt_col:
                     for cb, group in df_bvdr.groupby(bvdr_cb_col):
                         cb_str = str(cb).strip()
-                        
                         cond1 = (group[hsmem_col].astype(str).str.strip().str.upper() == "HSMEM") & \
                                 (group[hsbs_col].astype(str).str.strip().str.upper() == "BS")
-                        
                         cond2 = (group[hsmem_col].astype(str).str.strip().str.upper() == "HSCUNG") & \
                                 (group[tcbt_col].astype(str).str.strip() == "Khac TCBT D99")
-                        
                         bvdr_metrics[cb_str] = {
                             bvdr_col_name: int((cond1 | cond2).sum())
                         }
@@ -165,10 +162,7 @@ if uploaded_file is not None:
             grouped = df_baocao.groupby(row_col, dropna=False)
             final_display_columns = []
 
-            # Tên cột tính Tỷ lệ % Đúng hạn
             pct_dunghan_col = "% Thời gian GQ đúng hạn"
-
-            # Biến lưu tổng đúng hạn và tổng số hồ sơ toàn bộ để tính dòng TỔNG CỘNG
             total_dung_han_count = 0
             total_all_hoso_count = 0
 
@@ -176,7 +170,6 @@ if uploaded_file is not None:
                 display_name = str(name).strip() if pd.notna(name) and str(name).strip() != "" else "(Blank)"
                 row_dict = {row_col: display_name}
 
-                # 1. Các cột chọn từ Sheet Baocao
                 for c in val_cols:
                     if loai_hoso_col and c == loai_hoso_col:
                         group_indices = group.index
@@ -193,7 +186,6 @@ if uploaded_file is not None:
                                 final_display_columns.append(sub_c)
 
                     elif c == c37_col_name:
-                        # Đếm số lượng giá trị C37 trong cột C37/CI
                         is_c37 = group[c].astype(str).str.strip().str.upper() == "C37"
                         row_dict[c] = int(is_c37.sum())
                         if c not in final_display_columns:
@@ -203,7 +195,6 @@ if uploaded_file is not None:
                         if c not in final_display_columns:
                             final_display_columns.append(c)
 
-                # TÍNH % THỜI GIAN GQ ĐÚNG HẠN DÀNH CHO CÁN BỘ
                 if dung_han_col:
                     dung_han_series = group[dung_han_col].astype(str).str.strip().str.lower()
                     is_dung_han = dung_han_series.str.contains("đúng", na=False) | dung_han_series.str.contains("dung", na=False)
@@ -223,14 +214,12 @@ if uploaded_file is not None:
                 if pct_dunghan_col not in final_display_columns:
                     final_display_columns.append(pct_dunghan_col)
 
-                # 2. Ghép chỉ tiêu đọc từ Sheet KHCN (đối chiếu qua tên Cán bộ)
                 kh_data = khcn_metrics.get(display_name, {"KHCN/ATSK": 0, "PA/WCI": 0, "Du lịch": 0})
                 for kh_col in ["KHCN/ATSK", "PA/WCI", "Du lịch"]:
                     row_dict[kh_col] = kh_data.get(kh_col, 0)
                     if kh_col not in final_display_columns:
                         final_display_columns.append(kh_col)
 
-                # 3. Ghép chỉ tiêu đọc từ Sheet BVDR B1 (đối chiếu qua tên Cán bộ)
                 bv_data = bvdr_metrics.get(display_name, {bvdr_col_name: 0})
                 row_dict[bvdr_col_name] = bv_data.get(bvdr_col_name, 0)
                 if bvdr_col_name not in final_display_columns:
@@ -239,12 +228,9 @@ if uploaded_file is not None:
                 pivot_data.append(row_dict)
 
             pivot_df = pd.DataFrame(pivot_data)
-            
-            # Đảm bảo chỉ có DUY NHẤT 1 cột row_col ở đầu bảng
             ordered_cols = [row_col] + [c for c in final_display_columns if c != row_col]
             pivot_df = pivot_df[ordered_cols]
 
-            # Dòng TỔNG CỘNG ở cuối bảng
             total_row = {row_col: "--- TỔNG CỘNG ---"}
             for c in final_display_columns:
                 if c == pct_dunghan_col:
@@ -258,37 +244,54 @@ if uploaded_file is not None:
 
             display_df = pd.concat([pivot_df, pd.DataFrame([total_row])], ignore_index=True)
 
-            # --- HIỂN THỊ BẢNG PIVOT ---
-            st.subheader("1. Bảng tổng hợp")
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            # --- 1. HIỂN THỊ BẢNG PIVOT CÓ HỖ TRỢ CLICK CHUỘT VÀO Ô ---
+            st.subheader("1. Bảng tổng hợp chỉ tiêu (Tất cả 3 Sheet)")
+            st.caption("💡 *Mẹo: Click trực tiếp vào một ô số liệu bất kỳ trên bảng để xem chi tiết danh sách hồ sơ ở bên dưới.*")
+
+            # Kích hoạt sự kiện click chọn ô duy nhất
+            selection = st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-cell"
+            )
 
             st.write("---")
 
-            # --- PHẦN DRILL-DOWN CHI TIẾT ---
-            st.subheader("2. Xem chi tiết hồ sơ")
-            st.caption("💡 *Chọn Cán bộ và Cột chỉ tiêu để xem danh sách hồ sơ chi tiết tương ứng từ File nguồn.*")
+            # --- 2. XỬ LÝ SỰ KIỆN CLICK CHUỘT VÀ HIỂN THỊ DRILL-DOWN ---
+            st.subheader("2. Xem chi tiết hồ sơ gốc (Drill-down)")
 
-            col_select1, col_select2 = st.columns(2)
+            selected_person = None
+            selected_target_col = None
 
-            with col_select1:
-                unique_persons = pivot_df[row_col].unique().tolist()
-                selected_person = st.selectbox(f"🎯 Chọn `{row_col}`:", unique_persons)
+            # Bắt tọa độ dòng/cột người dùng vừa click
+            selected_cells = selection.get("selection", {}).get("cells", []) if selection else []
 
-            with col_select2:
-                selected_target_col = st.selectbox("📌 Chọn Cột chỉ tiêu muốn xem chi tiết:", final_display_columns)
+            if selected_cells:
+                cell = selected_cells[0]
+                row_idx = cell["row"]
+                col_name = cell["column"]
 
-            # Lọc dữ liệu chi tiết khi người dùng chọn
+                selected_person = display_df.iloc[row_idx][row_col]
+                selected_target_col = col_name
+
+                if selected_person == "--- TỔNG CỘNG ---":
+                    st.info("ℹ️ Bạn đang chọn dòng **--- TỔNG CỘNG ---**. Vui lòng click chọn ô số liệu của từng Cán bộ cụ thể!")
+                    selected_person = None
+                elif selected_target_col == row_col:
+                    st.info(f"ℹ️ Bạn đang chọn cán bộ **{selected_person}**. Vui lòng click chọn ô số liệu ở các cột chỉ tiêu tương ứng!")
+                    selected_person = None
+
             if selected_person and selected_target_col:
                 detail_df = pd.DataFrame()
                 source_sheet_name = ""
 
-                # CASE 1: CÁC CỘT THUỘC SHEET KHCN
                 if selected_target_col in ["KHCN/ATSK", "PA/WCI", "Du lịch"]:
                     source_sheet_name = "KHCN"
                     if not df_khcn.empty and khcn_cb_col:
                         person_mask = df_khcn[khcn_cb_col].astype(str).str.strip() == str(selected_person).strip()
                         nghiepvu_col = next((c for c in df_khcn.columns if "nghiệp vụ" in c.lower() or "nghiep vu" in c.lower()), None)
-
                         if nghiepvu_col:
                             nv_series = df_khcn[nghiepvu_col].astype(str).str.strip().str.upper()
                             if selected_target_col == "KHCN/ATSK":
@@ -297,10 +300,8 @@ if uploaded_file is not None:
                                 target_mask = nv_series.isin(["CPA", "WCI", "TNCN.HSP", "TNCN.GVP", "PAI"])
                             else:
                                 target_mask = nv_series.isin(["DQT", "DLVN", "FLE", "YDL", "DTN", "NND"])
-                            
                             detail_df = df_khcn[person_mask & target_mask]
 
-                # CASE 2: CỘT THUỘC SHEET BVDR B1
                 elif selected_target_col == bvdr_col_name:
                     source_sheet_name = "BVDR B1"
                     if not df_bvdr.empty and bvdr_cb_col:
@@ -312,13 +313,10 @@ if uploaded_file is not None:
                         if hsmem_col and hsbs_col and tcbt_col:
                             cond1 = (df_bvdr[hsmem_col].astype(str).str.strip().str.upper() == "HSMEM") & \
                                     (df_bvdr[hsbs_col].astype(str).str.strip().str.upper() == "BS")
-                            
                             cond2 = (df_bvdr[hsmem_col].astype(str).str.strip().str.upper() == "HSCUNG") & \
                                     (df_bvdr[tcbt_col].astype(str).str.strip() == "Khac TCBT D99")
-                            
                             detail_df = df_bvdr[person_mask & (cond1 | cond2)]
 
-                # CASE 3: CÁC CỘT THUỘC SHEET BAOCAO
                 else:
                     source_sheet_name = "Baocao"
                     if selected_person == "(Blank)":
@@ -349,14 +347,17 @@ if uploaded_file is not None:
                         col_mask = is_not_blank(df_baocao[selected_target_col])
                         detail_df = df_baocao[person_mask & col_mask]
 
+                # Dòng thông báo giữ nguyên chuẩn theo yêu cầu
                 st.success(
                     f"📋 Kết quả (Trích xuất từ Sheet **{source_sheet_name}**): Tìm thấy **{len(detail_df):,}** hồ sơ cho **{row_col}** = `{selected_person}` tại chỉ tiêu **{selected_target_col}**:"
                 )
 
                 st.dataframe(detail_df, use_container_width=True)
+            else:
+                st.info("👆 Vui lòng click chọn 1 ô số liệu trên Bảng 1 ở trên để xem chi tiết hồ sơ.")
 
     except Exception as e:
         st.error(f"❌ Có lỗi xảy ra trong quá trình xử lý: {e}")
 
 else:
-    st.info("👋 Chào bạn! Vui lòng tải file Excel (.xlsx) ở thanh bên trái để bắt đầu.")
+    st.info("👋 Vui lòng tải file Excel (.xlsx) lên thanh bên trái hoặc upload file `data.xlsx` mặc định lên GitHub.")

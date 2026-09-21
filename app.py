@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 st.set_page_config(page_title="Trang Web Báo Cáo Pivot 3 Sheet & Drill-down", layout="wide")
-st.title("📊 Trang phân tích dữ liệu KPI")
+st.title("📊 Trang tổng hợp dữ liệu KPI")
 
 # --- HÀM HỖ TRỢ ---
 def deduplicate_columns(df):
@@ -273,8 +273,8 @@ if excel_source is not None:
         display_df, meta = compute_pivot_dashboard(df_baocao, df_bvdr, df_khcn)
         row_col = meta["row_col"]
 
-        st.subheader("1. Bảng tổng hợp chỉ tiêu (Tất cả 3 Sheet)")
-        st.caption("💡 *Mẹo: Click trực tiếp vào một ô số liệu bất kỳ trên bảng để xem chi tiết danh sách hồ sơ ở bên dưới.*")
+        st.subheader("1. Bảng tổng hợp")
+        st.caption("💡 *Note: Click trực tiếp vào một ô số liệu bất kỳ trên bảng để xem chi tiết danh sách hồ sơ ở bên dưới.*")
 
         selection = st.dataframe(
             display_df,
@@ -285,7 +285,7 @@ if excel_source is not None:
         )
 
         st.write("---")
-        st.subheader("2. Xem chi tiết hồ sơ gốc (Drill-down)")
+        st.subheader("2. Xem chi tiết")
 
         # Trích xuất ô được chọn
         selected_person = None

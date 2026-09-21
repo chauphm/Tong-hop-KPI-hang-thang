@@ -13,7 +13,6 @@ def deduplicate_columns(df):
     return df
 
 def get_col_by_letter(df, letter):
-    # Quy đổi tên chữ cái cột Excel (A, B, H, I...) sang chỉ số vị trí 0-indexed
     letter = letter.upper().strip()
     idx = 0
     for char in letter:
@@ -105,7 +104,7 @@ if excel_source is not None:
             if loai_hoso_col:
                 df_baocao[loai_hoso_col + "_mapped"] = df_baocao[loai_hoso_col].map(mapping_dict).fillna(df_baocao[loai_hoso_col].astype(str))
 
-            # --- KHAI BÁO CHÍNH XÁC DANH SÁCH CỘT CẦN LẤY TỪ SHEET BAOCAO ---
+            # --- KHAI BÁO DANH SÁCH CỘT CẦN LẤY ---
             letters = ["H", "I", "K", "N", "O", "X", "AG", "AH", "AK", "AL", "AM", "AN"]
             target_excel_cols = []
             for l in letters:
@@ -113,9 +112,23 @@ if excel_source is not None:
                 if col_name and col_name != row_col:
                     target_excel_cols.append(col_name)
 
-            # Đảm bảo các cột đặc biệt (Loại hồ sơ, Tờ trình BTTĐ, Ngoại giao) có mặt trong danh sách tính toán
             special_cols = [loai_hoso_col, totrinh_col, ngoaigiao_col]
             val_cols = list(dict.fromkeys([c for c in target_excel_cols + special_cols if c is not None]))
+
+            # --- LOẠI BỎ 5 CỘT THEO YÊU CẦU CỦA BẠN ---
+            EXCLUDE_KEYWORDS = [
+                "số gyctt", "so gyctt", 
+                "số hồ sơ tờ trình bồi thường", "so ho so to trinh boi thuong",
+                "người duyệt", "nguoi duyet",
+                "số tiền bồi thường", "so tien boi thuong",
+                "hsmem", "tcbt d99"
+            ]
+
+            def is_excluded(col_name):
+                c_clean = str(col_name).lower().strip()
+                return any(kw in c_clean for kw in EXCLUDE_KEYWORDS)
+
+            val_cols = [c for c in val_cols if not is_excluded(c)]
 
             # --- TÍNH TOÁN DỮ LIỆU CÁC SHEET PHỤ ---
             khcn_metrics = {}
@@ -184,17 +197,17 @@ if excel_source is not None:
                         row_dict[c_tuvong] = int((mapped_series == "Tử vong").sum())
 
                         for sub_c in [c_ngoai, c_noi, c_tuvong]:
-                            if sub_c not in final_display_columns:
+                            if sub_c not in final_display_columns and not is_excluded(sub_c):
                                 final_display_columns.append(sub_c)
 
                     elif c == c37_col_name:
                         is_c37 = group[c].astype(str).str.strip().str.upper() == "C37"
                         row_dict[c] = int(is_c37.sum())
-                        if c not in final_display_columns:
+                        if c not in final_display_columns and not is_excluded(c):
                             final_display_columns.append(c)
                     else:
                         row_dict[c] = int(is_not_blank(group[c]).sum())
-                        if c not in final_display_columns:
+                        if c not in final_display_columns and not is_excluded(c):
                             final_display_columns.append(c)
 
                 if dung_han_col:
@@ -349,6 +362,14 @@ if excel_source is not None:
                     else:
                         col_mask = is_not_blank(df_baocao[selected_target_col])
                         detail_df = df_baocao[person_mask & col_mask]
+
+                # --- SỬA LỖI SẮP XẾP/HIỂN THỊ CHỨA DỮ LIỆU HỖN HỢP CHỮ VÀ SỐ ('<' not supported) ---
+                if not detail_df.empty:
+                    # Chuyển tất cả tên cột về kiểu chuỗi chuẩn
+                    detail_df.columns = [str(col) for col in detail_df.columns]
+                    # Loại bỏ các cột phụ do mã nguồn tạo ra khi hiển thị chi tiết
+                    clean_cols = [c for c in detail_df.columns if not str(c).endswith("_mapped")]
+                    detail_df = detail_df[clean_cols]
 
                 st.success(
                     f"📋 Kết quả (Trích xuất từ Sheet **{source_sheet_name}**): Tìm thấy **{len(detail_df):,}** hồ sơ cho **{row_col}** = `{selected_person}` tại chỉ tiêu **{selected_target_col}**:"
